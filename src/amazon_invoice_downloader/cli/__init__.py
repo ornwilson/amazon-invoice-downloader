@@ -8,7 +8,8 @@ Amazon Invoice Downloader
 Usage:
   amazon-invoice-downloader.py \
     [--email=<email> --password=<password>] \
-    [--year=<YYYY> | --date-range=<YYYYMMDD-YYYYMMDD>]
+    [--year=<YYYY> | --date-range=<YYYYMMDD-YYYYMMDD>] \
+    [--filename-format=<format>]
   amazon-invoice-downloader.py (-h | --help)
   amazon-invoice-downloader.py (-v | --version)
 
@@ -20,6 +21,10 @@ Date Range Options:
   --date-range=<YYYYMMDD-YYYYMMDD>  Start and end date range
   --year=<YYYY>                     Year, formatted as YYYY  [default: <CUR_YEAR>].
 
+Output Options:
+  --filename-format=<format>  Filename template using placeholders {date}, {total}, {orderid}.
+                              [default: {date}_{total}_amazon_{orderid}]
+
 Options:
   -h --help                Show this screen.
   -v --version             Show version.
@@ -30,6 +35,8 @@ Examples:
   amazon-invoice-downloader.py --email=user@example.com --password=secret  # Defaults to current year
   amazon-invoice-downloader.py --email=user@example.com --password=secret --year=2022
   amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231
+  amazon-invoice-downloader.py --filename-format="{date}_{orderid}"
+  amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231 --filename-format="{date}_Amazon_{orderid}_{total}"
 
 Features:
   - Remote debugging enabled on port 9222 for AI MCP Servers
@@ -88,13 +95,15 @@ def load_env_if_needed():
 
 def sleep():
     # Add human latency
-    # Generate a random sleep time between 3 and 5 seconds
-    sleep_time = random.uniform(2, 5)
+    # Generate a random sleep time between 0.5 and 3 seconds
+    sleep_time = random.uniform(0.5, 3)
     # Sleep for the generated time
     time.sleep(sleep_time)
 
 
 def run(playwright, args):
+    filename_format = args.get("--filename-format") or "{date}_{total}_amazon_{orderid}"
+
     email = args.get("--email")
     if email == "$AMAZON_EMAIL":
         email = os.environ.get("AMAZON_EMAIL")
@@ -254,7 +263,7 @@ def run(playwright, args):
                 total = spans[3].inner_text().replace("$", "").replace(",", "")  # remove dollar sign and commas
                 orderid = spans[8].inner_text()
                 date_str = date.strftime("%Y%m%d")
-                file_name = f"{target_dir}/{date_str}_{total}_amazon_{orderid}.pdf"
+                file_name = f"{target_dir}/{filename_format.format(date=date_str, total=total, orderid=orderid)}.pdf"
 
                 if date > end_date:
                     continue
