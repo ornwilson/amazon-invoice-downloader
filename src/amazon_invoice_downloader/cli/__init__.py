@@ -211,11 +211,12 @@ def run(playwright, args):
         print("✅ 2FA completed")
     page.wait_for_load_state("domcontentloaded")
 
+    sleep()
     page.wait_for_selector("a >> text=Returns & Orders", timeout=0).click()
     sleep()
 
     # Get a list of years from the select options
-    select = page.query_selector("select#time-filter")
+    select = page.wait_for_selector("select#time-filter")
     years = select.inner_text().split("\n")  # skip the first two text options
 
     # Filter years to include only numerical years (YYYY)
