@@ -37,7 +37,8 @@ Examples:
   amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231
   amazon-invoice-downloader.py --filename-format="{date}_{orderid}"
   amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231 --filename-format="{date}_Amazon_{orderid}_{total}"
-
+  amazon-invoice-downloader --date-range=20241224-20241231 --filename-format="{date}_Amazon_{orderid}_{total}"
+  
 Features:
   - Remote debugging enabled on port 9222 for AI MCP Servers
   - Virtual authenticator configured to prevent passkey dialogs
@@ -255,8 +256,18 @@ def run(playwright, args):
                 spans = order_card.query_selector_all("span")
                 # Debug:
                 # for i,s in enumerate(spans): print(i, s.inner_text())
+                # print(f"span count: {len(spans)}")
+                # for i, s in enumerate(spans):
+                #     try:
+                #         print(f"span[{i}] = {s.inner_text().strip()!r}")
+                #     except Exception as e:
+                #         print(f"span[{i}] = <error reading text: {e}>")
 
-                # Skip cancelled orders
+                # if len(spans) <= 4:
+                #     print("Order card HTML:")
+                #     print(order_card.inner_html())
+                #     raise RuntimeError("Order card had fewer than 5 spans")
+
                 if spans[4].inner_text().strip().lower() == "cancelled":
                     continue
 

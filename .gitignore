@@ -35,6 +35,7 @@ downloads/
 # IDE
 .vscode/settings.json
 .vscode/launch.json
+.claude/settings.local.json
 
 # Cache directories
 
@@ -43,3 +44,4 @@ downloads/
 htmlcov/
 *.bak
 reference
+
