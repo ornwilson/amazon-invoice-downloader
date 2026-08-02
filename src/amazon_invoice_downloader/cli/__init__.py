@@ -166,19 +166,74 @@ def run(playwright, args):
 
     Stealth().apply_stealth_sync(page)
 
-    # Wait for page to fully load
+    # Wait for page to fully load. "domcontentloaded" alone isn't enough here:
+    # Amazon's AWS WAF bot-check interstitial fires its own JS reload/redirect
+    # shortly *after* domcontentloaded, so querying immediately can race an
+    # in-flight navigation and raise "Execution context was destroyed".
+    # wait_for_selector below (rather than an immediate query_selector) rides
+    # out that settle time instead of racing it.
     page.goto("https://amazon.com/")
-    page.wait_for_load_state("domcontentloaded")
+    page.wait_for_load_state("load")
 
-    # Check if we're on the less fully featured page
+    # Amazon sometimes serves a bot-check interstitial ("Click the button
+    # below to continue shopping") before the real homepage. Click through
+    # it if present, since nothing else on that page matches our selectors.
+    continue_shopping = page.query_selector('button:has-text("Continue shopping")')
+    if continue_shopping:
+        print("Bot-check interstitial detected, clicking through...")
+        continue_shopping.click()
+        page.wait_for_load_state("load")
+        sleep()
+
+    # Check if we're on the less fully featured page. Use wait_for_selector
+    # (with a real timeout) instead of an instant query_selector so we wait
+    # out any trailing redirect/reload rather than racing it.
+    try:
+        page.wait_for_selector(
+            'a:has-text("Returns & Orders"), a:has-text("Your Account")',
+            timeout=15000,
+        )
+    except Exception:
+        pass  # handled by the None checks below, which capture diagnostics
+
     test_less_featured_page = page.query_selector('a:has-text("Returns & Orders")')
     if not test_less_featured_page:
         print("Less featured page detected, navigating to sign-in...")
-        page.query_selector('a:has-text("Your Account")').click()
-        page.wait_for_load_state("domcontentloaded")
+        your_account_link = page.query_selector('a:has-text("Your Account")')
+        if not your_account_link:
+            try:
+                debug_html = os.path.join(target_dir, "debug_unrecognized_page.html")
+                debug_png = os.path.join(target_dir, "debug_unrecognized_page.png")
+                with open(debug_html, "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                page.screenshot(path=debug_png)
+                link_texts = [
+                    a.inner_text().strip()
+                    for a in page.query_selector_all("a")
+                    if a.inner_text().strip()
+                ]
+                diagnostics = (
+                    f"URL was: {page.url}\n"
+                    f"Visible link texts: {link_texts}\n"
+                    f"Saved page HTML to {debug_html} and screenshot to {debug_png}."
+                )
+            except Exception as diag_error:
+                diagnostics = (
+                    f"Additionally failed to capture diagnostics (page was "
+                    f"still navigating): {diag_error}"
+                )
+            raise RuntimeError(
+                "Could not find 'Returns & Orders' or 'Your Account' link. "
+                + diagnostics
+            )
+        your_account_link.click()
+        page.wait_for_load_state("load")
         sleep()
 
-    page.query_selector('a:has-text("Hello, sign in")').click()
+    # Locator.click() (unlike query_selector) auto-waits and retries against
+    # actionability, so it survives the trailing redirect/reload that keeps
+    # breaking the one-shot query_selector(...).click() pattern above.
+    page.get_by_role("link", name="Hello, sign in").click()
     page.wait_for_load_state("domcontentloaded")
     sleep()
 
