@@ -96,7 +96,7 @@ run-local:  ## Run the program for this year
 .PHONY: run
 run:  ## Run a few examples
 	uv run amazon-invoice-downloader --year 2024
-	uv run amazon-invoice-downloader --date-range 20230131-20221201
+	uv run amazon-invoice-downloader --date-range 20230131-20231201
 
 .PHONY: build
 build:  ## Build the project

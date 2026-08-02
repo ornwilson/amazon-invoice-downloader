@@ -29,7 +29,7 @@ This program automates downloading Amazon purchase invoices using [Playwright](h
 
 **Date Range**: Use `--year=<YYYY>` or `--date-range=<YYYYMMDD-YYYYMMDD>`. Defaults to current year.
 
-**Output**: PDFs saved to `./downloads/` as `YYYYMMDD_<total>_amazon_<orderid>.pdf`. Existing files are skipped.
+**Output**: PDFs saved to `./downloads/`, named from `--filename-format=<format>` (default `{date}_{total}_amazon_{orderid}`, e.g. `20241224_12.34_amazon_123-4567890-1234567.pdf`). Placeholders: `{date}` (YYYYMMDD), `{total}`, `{orderid}`; at least one is required, and `.pdf` is appended automatically. Existing files are skipped.
 
 **Features**:
 - Human-like delays (2-5 seconds) to avoid bot detection
@@ -94,6 +94,9 @@ uv run playwright install
 
    # Download invoices for date range
    amazon-invoice-downloader --date-range=20230101-20231231
+
+   # Use a custom filename format
+   amazon-invoice-downloader --filename-format="{date}_Amazon_{orderid}_{total}"
    ```
 
 **Note:** The program automatically searches for `.env` files in the current directory and up to 3 parent directories. The `.env` file is already in `.gitignore` to prevent accidentally committing sensitive credentials.
@@ -109,7 +112,7 @@ uv run playwright install
 3. **Login Process**: Navigates to Amazon and attempts to log in using your credentials
 4. **2FA Handling**: If 2FA is detected, the program pauses and prompts you to complete it manually
 5. **Invoice Download**: Downloads invoices for the specified date range to `./downloads/`
-6. **File Naming**: Saves files as `YYYYMMDD_<total>_amazon_<orderid>.pdf`
+6. **File Naming**: Saves files using `--filename-format` (default `{date}_{total}_amazon_{orderid}.pdf`)
 
 ### Common Scenarios
 
@@ -124,11 +127,9 @@ $ amazon-invoice-downloader -h
 Amazon Invoice Downloader
 
 Usage:
-  amazon-invoice-downloader \
-    [--email=<email> --password=<password>] \
-    [--year=<YYYY> | --date-range=<YYYYMMDD-YYYYMMDD>]
-  amazon-invoice-downloader (-h | --help)
-  amazon-invoice-downloader (-v | --version)
+  amazon-invoice-downloader.py     [--email=<email> --password=<password>]     [--year=<YYYY> | --date-range=<YYYYMMDD-YYYYMMDD>]     [--filename-format=<format>]
+  amazon-invoice-downloader.py (-h | --help)
+  amazon-invoice-downloader.py (-v | --version)
 
 Login Options:
   --email=<email>          Amazon login email  [default: $AMAZON_EMAIL].
@@ -138,9 +139,26 @@ Date Range Options:
   --date-range=<YYYYMMDD-YYYYMMDD>  Start and end date range
   --year=<YYYY>                     Year, formatted as YYYY  [default: <CUR_YEAR>].
 
+Output Options:
+  --filename-format=<format>  Filename template for each downloaded invoice, using
+                              named placeholders {date} (YYYYMMDD), {total} (e.g. 12.34),
+                              and {orderid}. At least one placeholder is required, and
+                              ".pdf" is appended automatically.
+                              [default: {date}_{total}_amazon_{orderid}]
+
 Options:
   -h --help                Show this screen.
   -v --version             Show version.
+
+Examples:
+  amazon-invoice-downloader.py --year=2022  # Uses .env file or env vars $AMAZON_EMAIL and $AMAZON_PASSWORD
+  amazon-invoice-downloader.py --date-range=20220101-20221231
+  amazon-invoice-downloader.py --email=user@example.com --password=secret  # Defaults to current year
+  amazon-invoice-downloader.py --email=user@example.com --password=secret --year=2022
+  amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231
+  amazon-invoice-downloader.py --filename-format="{date}_{orderid}"
+  amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231 --filename-format="{date}_Amazon_{orderid}_{total}"
+  amazon-invoice-downloader --date-range=20241224-20241231 --filename-format="{date}_Amazon_{orderid}_{total}"
 
 Features:
   - Remote debugging enabled on port 9222 for AI MCP Servers
@@ -151,13 +169,13 @@ Credential Precedence:
   1. Command line arguments (--email, --password)
   2. Environment variables ($AMAZON_EMAIL, $AMAZON_PASSWORD)
   3. .env file (automatically loaded if env vars not set)
+```
 
-Examples:
-  amazon-invoice-downloader --year=2022  # Uses .env file or env vars $AMAZON_EMAIL and $AMAZON_PASSWORD
-  amazon-invoice-downloader --date-range=20220101-20221231
-  amazon-invoice-downloader --email=user@example.com --password=secret  # Defaults to current year
-  amazon-invoice-downloader --email=user@example.com --password=secret --year=2022
-  amazon-invoice-downloader --email=user@example.com --password=secret --date-range=20220101-20221231
+Invalid formats are rejected before the browser launches:
+
+```console
+$ amazon-invoice-downloader --filename-format="{order_id}"
+Error: unknown placeholder {order_id} in '{order_id}'; valid placeholders are {date}, {total}, {orderid}
 ```
 
 ## AI Assistant Integration & Debugging

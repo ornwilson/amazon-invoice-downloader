@@ -22,7 +22,10 @@ Date Range Options:
   --year=<YYYY>                     Year, formatted as YYYY  [default: <CUR_YEAR>].
 
 Output Options:
-  --filename-format=<format>  Filename template using placeholders {date}, {total}, {orderid}.
+  --filename-format=<format>  Filename template for each downloaded invoice, using
+                              named placeholders {date} (YYYYMMDD), {total} (e.g. 12.34),
+                              and {orderid}. At least one placeholder is required, and
+                              ".pdf" is appended automatically.
                               [default: {date}_{total}_amazon_{orderid}]
 
 Options:
@@ -38,7 +41,7 @@ Examples:
   amazon-invoice-downloader.py --filename-format="{date}_{orderid}"
   amazon-invoice-downloader.py --email=user@example.com --password=secret --date-range=20220101-20221231 --filename-format="{date}_Amazon_{orderid}_{total}"
   amazon-invoice-downloader --date-range=20241224-20241231 --filename-format="{date}_Amazon_{orderid}_{total}"
-  
+
 Features:
   - Remote debugging enabled on port 9222 for AI MCP Servers
   - Virtual authenticator configured to prevent passkey dialogs
@@ -52,6 +55,7 @@ Credential Precedence:
 
 import os
 import random
+import string
 import sys
 import time
 from datetime import datetime
@@ -63,6 +67,74 @@ from playwright.sync_api import TimeoutError, sync_playwright
 from playwright_stealth import Stealth
 
 from ..__about__ import __version__
+
+DEFAULT_FILENAME_FORMAT = "{date}_{total}_amazon_{orderid}"
+VALID_PLACEHOLDERS = ("date", "total", "orderid")
+
+# Characters that Windows (and, for safety, other OSes) forbid in filenames.
+_RESERVED_FILENAME_CHARS = '<>:"|?*'
+
+# Representative values used to render a sample filename during validation.
+_SAMPLE_PLACEHOLDER_VALUES = {"date": "20240101", "total": "12.34", "orderid": "123-4567890-1234567"}
+
+
+def validate_filename_format(filename_format):
+    """Validate a --filename-format template and return its normalized form.
+
+    Raises ValueError with a human-readable message describing the problem.
+    """
+    filename_format = filename_format.strip()
+    if not filename_format:
+        raise ValueError("--filename-format must not be empty")
+
+    placeholder_list = ", ".join("{" + name + "}" for name in VALID_PLACEHOLDERS)
+
+    try:
+        parsed_fields = list(string.Formatter().parse(filename_format))
+    except ValueError as e:
+        raise ValueError(f"{filename_format!r} is not a valid template: {e}") from e
+
+    field_names = [field_name for _, field_name, _, _ in parsed_fields if field_name is not None]
+
+    if not field_names:
+        raise ValueError(
+            f"{filename_format!r} must contain at least one placeholder ({placeholder_list}); "
+            "otherwise every order would be saved to the same file"
+        )
+
+    for name in field_names:
+        if name == "" or name.isdigit():
+            raise ValueError(
+                f"{filename_format!r} uses a positional placeholder; "
+                f"use named placeholders instead: {placeholder_list}"
+            )
+        if name not in VALID_PLACEHOLDERS:
+            raise ValueError(
+                f"unknown placeholder {{{name}}} in {filename_format!r}; valid placeholders are {placeholder_list}"
+            )
+
+    rendered = filename_format.format(**_SAMPLE_PLACEHOLDER_VALUES)
+
+    if "/" in rendered or "\\" in rendered:
+        raise ValueError(f"{filename_format!r} contains a path separator; it must produce a single filename")
+
+    bad_chars = sorted(set(rendered) & set(_RESERVED_FILENAME_CHARS))
+    if bad_chars:
+        raise ValueError(
+            f"{filename_format!r} produces filenames containing characters that cannot be used in a filename: "
+            f"{' '.join(bad_chars)}"
+        )
+    if any(ord(c) < 32 for c in rendered):
+        raise ValueError(f"{filename_format!r} produces filenames containing control characters")
+
+    if "orderid" not in field_names:
+        print(
+            f"⚠️ Warning: --filename-format {filename_format!r} does not include {{orderid}}; "
+            "orders with the same date and total may overwrite each other",
+            file=sys.stderr,
+        )
+
+    return filename_format
 
 
 def load_env_if_needed():
@@ -96,14 +168,14 @@ def load_env_if_needed():
 
 def sleep():
     # Add human latency
-    # Generate a random sleep time between 0.5 and 3 seconds
-    sleep_time = random.uniform(0.5, 3)
+    # Generate a random sleep time between 2 and 5 seconds
+    sleep_time = random.uniform(2, 5)
     # Sleep for the generated time
     time.sleep(sleep_time)
 
 
 def run(playwright, args):
-    filename_format = args.get("--filename-format") or "{date}_{total}_amazon_{orderid}"
+    filename_format = args.get("--filename-format") or DEFAULT_FILENAME_FORMAT
 
     email = args.get("--email")
     if email == "$AMAZON_EMAIL":
@@ -314,6 +386,12 @@ def amazon_invoice_downloader():
     if args['--version']:
         print(__version__)
         sys.exit(0)
+
+    try:
+        validate_filename_format(args.get("--filename-format") or DEFAULT_FILENAME_FORMAT)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
 
     with sync_playwright() as playwright:
         run(playwright, args)
