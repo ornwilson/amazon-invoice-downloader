@@ -233,7 +233,11 @@ def run(playwright, args):
     # Locator.click() (unlike query_selector) auto-waits and retries against
     # actionability, so it survives the trailing redirect/reload that keeps
     # breaking the one-shot query_selector(...).click() pattern above.
-    page.get_by_role("link", name="Hello, sign in").click()
+    try:
+        page.get_by_role("link", name="Hello, sign in").click(timeout=10000)
+    except TimeoutError:
+        # Nav didn't render (bot-detection stub or layout change); navigate directly to sign-in
+        page.goto("https://www.amazon.com/gp/sign-in.html")
     page.wait_for_load_state("domcontentloaded")
     sleep()
 
