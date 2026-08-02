@@ -252,7 +252,12 @@ def run(playwright, args):
 
                 date = datetime.strptime(spans[1].inner_text(), "%B %d, %Y")
                 total = spans[3].inner_text().replace("$", "").replace(",", "")  # remove dollar sign and commas
-                orderid = spans[8].inner_text()
+                # Scoped to order_card, not page: page.query_selector(".yohtmlc-order-id")
+                # would return the first match on the whole page, assigning every
+                # order on the page the same (first) order id.
+                order_id_parent = order_card.query_selector(".yohtmlc-order-id")
+                order_id_span = order_id_parent.query_selector("span.a-color-secondary:not(.a-text-caps)")
+                orderid = order_id_span.inner_text()
                 date_str = date.strftime("%Y%m%d")
                 file_name = f"{target_dir}/{date_str}_{total}_amazon_{orderid}.pdf"
 
