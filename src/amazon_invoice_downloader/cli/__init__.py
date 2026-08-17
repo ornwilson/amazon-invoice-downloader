@@ -265,11 +265,27 @@ def run(playwright, args):
                 if os.path.isfile(file_name):
                     print(f"File [{file_name}] already exists")
                 else:
+                    # Not every order card has a "View invoice" link (e.g. older
+                    # or digital orders) - skip it rather than aborting the
+                    # whole run on one order.
+                    invoice_link_el = order_card.query_selector(
+                        'xpath=//a[contains(text(), "View invoice")]'
+                    )
+                    if not invoice_link_el:
+                        link_texts = [
+                            a.inner_text().strip()
+                            for a in order_card.query_selector_all("a")
+                            if a.inner_text().strip()
+                        ]
+                        print(
+                            f"⚠️ Warning: No 'View invoice' link for order [{orderid}] "
+                            f"dated [{date_str}]; skipping. Links on this card: {link_texts}"
+                        )
+                        continue
+
                     print(f"Saving file [{file_name}]")
                     # Save
-                    link = "https://www.amazon.com/" + order_card.query_selector(
-                        'xpath=//a[contains(text(), "View invoice")]'
-                    ).get_attribute("href")
+                    link = "https://www.amazon.com/" + invoice_link_el.get_attribute("href")
                     invoice_page = context.new_page()
                     invoice_page.goto(link)
                     invoice_page.pdf(
