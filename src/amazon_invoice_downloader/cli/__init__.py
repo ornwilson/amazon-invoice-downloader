@@ -51,7 +51,7 @@ from pathlib import Path
 
 from docopt import docopt
 from dotenv import load_dotenv
-from playwright.sync_api import TimeoutError, sync_playwright
+from playwright.sync_api import Error, TimeoutError, sync_playwright
 from playwright_stealth import Stealth
 
 from ..__about__ import __version__
@@ -92,6 +92,21 @@ def sleep():
     sleep_time = random.uniform(2, 5)
     # Sleep for the generated time
     time.sleep(sleep_time)
+
+
+def is_two_step_verification_page(page):
+    """Return True if the current page is Amazon's 2FA challenge.
+
+    Amazon can navigate/reload the page shortly after it settles (same as the
+    sign-in flow), which tears down Playwright's execution context mid-query
+    and raises Error("Execution context was destroyed, most likely because of
+    a navigation"). Treat that as "still mid-navigation, assume still on the
+    2FA page" instead of letting it crash the whole run.
+    """
+    try:
+        return page.query_selector('title:has-text("Two-Step Verification")') is not None
+    except Error:
+        return True
 
 
 def run(playwright, args):
@@ -195,9 +210,9 @@ def run(playwright, args):
         sleep()
 
     # Check for 2FA page
-    if page.query_selector('title:has-text("Two-Step Verification")'):
+    if is_two_step_verification_page(page):
         print("🔐 2FA detected - please complete authentication in browser")
-        while page.query_selector('title:has-text("Two-Step Verification")'):
+        while is_two_step_verification_page(page):
             time.sleep(1)
         print("✅ 2FA completed")
     page.wait_for_load_state("domcontentloaded")
