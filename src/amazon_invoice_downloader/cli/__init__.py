@@ -7,6 +7,7 @@ Amazon Invoice Downloader
 
 Usage:
   amazon-invoice-downloader.py \
+    [--debug] \
     [--email=<email> --password=<password>] \
     [--year=<YYYY> | --date-range=<YYYYMMDD-YYYYMMDD>] \
     [--filename-format=<format>]
@@ -29,6 +30,7 @@ Output Options:
                               [default: {date}_{total}_amazon_{orderid}]
 
 Options:
+  --debug                  Show debug messages and keep browser open on error.
   -h --help                Show this screen.
   -v --version             Show version.
 
@@ -189,6 +191,36 @@ def is_two_step_verification_page(page):
         return True
 
 
+def safe_click(page, method_name, *args, **kwargs):
+    """
+    Allow safely clicking an element by passing any method of the page object along with its arguments.
+
+    Examples:
+        safe_click(page, 'query_selector', 'a:has-text("Hello, sign in")')
+        safe_click(page, 'get_by_role', 'button', name="Continue")
+    """
+    # Get the method from the page object
+    method = getattr(page, method_name)
+
+    # Call the method with the provided arguments
+    element = method(*args, **kwargs)
+
+    # Format the call for debugging
+    args_str = ', '.join([repr(arg) for arg in args])
+    kwargs_str = ', '.join([f'{k}={repr(v)}' for k, v in kwargs.items()])
+    all_args = ', '.join(filter(None, [args_str, kwargs_str]))
+
+    print(f"Attempting to click: page.{method_name}({all_args})")
+    try:
+        element.click()
+    except Exception as e:
+        print(f"❌ Failed to click page.{method_name}({all_args}): {e}")
+        if DEBUG_MODE:
+            print(f"🐛 DEBUG: Browser staying open. Press Enter to exit...")
+            input()
+        raise
+
+
 def run(playwright, args):
     filename_format = args.get("--filename-format") or DEFAULT_FILENAME_FORMAT
 
@@ -272,16 +304,6 @@ def run(playwright, args):
     page.goto("https://amazon.com/")
     page.wait_for_load_state("load")
 
-    # Amazon sometimes serves a bot-check interstitial ("Click the button
-    # below to continue shopping") before the real homepage. Click through
-    # it if present, since nothing else on that page matches our selectors.
-    continue_shopping = page.query_selector('button:has-text("Continue shopping")')
-    if continue_shopping:
-        print("Bot-check interstitial detected, clicking through...")
-        continue_shopping.click()
-        page.wait_for_load_state("load")
-        sleep()
-
     # Check if we're on the less fully featured page. Use wait_for_selector
     # (with a real timeout) instead of an instant query_selector so we wait
     # out any trailing redirect/reload rather than racing it.
@@ -292,6 +314,20 @@ def run(playwright, args):
         )
     except Exception:
         pass  # handled by the None checks below, which capture diagnostics
+
+    # Amazon sometimes serves a bot-check interstitial ("Click the button
+    # below to continue shopping") before the real homepage. Click through
+    # it if present, since nothing else on that page matches our selectors.
+    # Wait for "load" (not just "domcontentloaded") after clicking through: the
+    # WAF interstitial fires its own JS reload/redirect shortly after
+    # domcontentloaded, so continuing too early can race that in-flight
+    # navigation and raise "Execution context was destroyed".
+    test_continue_shopping = page.get_by_role("button", name="Continue shopping")
+    if test_continue_shopping.count() > 0:
+        print("Continue shopping page detected, navigating to main page...")
+        safe_click(page, 'get_by_role', "button", name="Continue shopping")
+        page.wait_for_load_state("load")
+        sleep()
 
     test_less_featured_page = page.query_selector('a:has-text("Returns & Orders")')
     if not test_less_featured_page:
@@ -340,27 +376,29 @@ def run(playwright, args):
 
     if email:
         page.get_by_label("Email").fill(email)
-        page.get_by_role("button", name="Continue").click()
+        safe_click(page, 'get_by_role', "button", name="Continue")
         page.wait_for_load_state("domcontentloaded")
         sleep()
 
     if password:
         page.get_by_label("Password").fill(password)
-        page.get_by_role("button", name="Sign in", exact=True).click()
+        safe_click(page, 'get_by_role', "button", name="Sign in", exact=True)
         page.wait_for_load_state("domcontentloaded")
         sleep()
 
     # Check for 2FA page
     if is_two_step_verification_page(page):
         print("🔐 2FA detected - please complete authentication in browser")
-        while is_two_step_verification_page(page):
-            time.sleep(1)
+        # Wait for the destination element to appear instead of polling the
+        # 2FA title for its disappearance: wait_for_selector's own retry
+        # logic already tolerates the navigation(s) Amazon fires once the
+        # code is accepted, so there's nothing left here to race.
+        page.wait_for_selector("a >> text=Returns & Orders", timeout=0)
         print("✅ 2FA completed")
     page.wait_for_load_state("domcontentloaded")
 
     sleep()
     page.wait_for_selector("a >> text=Returns & Orders", timeout=0).click()
-    sleep()
 
     # Get a list of years from the select options
     select = page.wait_for_selector("select#time-filter")
@@ -385,15 +423,15 @@ def run(playwright, args):
         while not done:
             # Go to the next page pagination, and continue downloading
             #   if there is not a next page then break
-            try:
-                if first_page:
-                    first_page = False
+            if first_page:
+                first_page = False
+            else:
+                next_link = page.get_by_role("link", name="Next →")
+                if next_link.is_visible() > 0:
+                    next_link.click()
                 else:
-                    page.get_by_role("link", name="Next →").click()
-                sleep()  # sleep after every page load
-            except TimeoutError:
-                # There are no more pages
-                break
+                    break
+            sleep()  # sleep after every page load
 
             # Order Loop
             order_cards = page.query_selector_all(".order-card.js-order-card")
@@ -466,13 +504,15 @@ def run(playwright, args):
                         margin={"top": ".5in", "right": ".5in", "bottom": ".5in", "left": ".5in"},
                     )
                     invoice_page.close()
-
+    print("✅ Finished downloading invoices")
     # Close the browser
     context.close()
     browser.close()
 
 
 def amazon_invoice_downloader():
+    global DEBUG_MODE
+
     # Load environment variables from .env file if needed
     load_env_if_needed()
 
@@ -487,6 +527,9 @@ def amazon_invoice_downloader():
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
+
+    # Set debug mode
+    DEBUG_MODE = args.get('--debug', False)
 
     with sync_playwright() as playwright:
         run(playwright, args)
