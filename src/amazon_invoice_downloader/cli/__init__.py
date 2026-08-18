@@ -191,6 +191,9 @@ def is_two_step_verification_page(page):
         return True
 
 
+DEBUG_MODE = False
+
+
 def safe_click(page, method_name, *args, **kwargs):
     """
     Allow safely clicking an element by passing any method of the page object along with its arguments.
