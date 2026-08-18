@@ -399,6 +399,7 @@ def run(playwright, args):
 
     sleep()
     page.wait_for_selector("a >> text=Returns & Orders", timeout=0).click()
+    sleep()
 
     # Get a list of years from the select options
     select = page.wait_for_selector("select#time-filter")
